@@ -198,14 +198,58 @@ int main(int argc, char *argv[]) {
         // draw results
         image.copyTo(imageCopy);
         if(!ids.empty()) {
-            aruco::drawDetectedMarkers(imageCopy, corners, ids);
+            //aruco::drawDetectedMarkers(imageCopy, corners, ids);
         }
 
         if(showRejected && !rejected.empty())
             aruco::drawDetectedMarkers(imageCopy, rejected, noArray(), Scalar(100, 0, 255));
 
-        if(markersOfBoardDetected > 0)
+        if (markersOfBoardDetected > 0)
+        {
+           /* Mat rmat;
+            Rodrigues(rvec, rmat);
+            Mat flipZ = (cv::Mat_<double>(3, 3) << 1, 0, 0, 0, 1, 0, 0, 0, -1);
+            Mat newRmat = flipZ * rmat;
+            Rodrigues(newRmat, rvec);*/
+
+            Mat rotatemat;
+            Vec3f avg_tvec = tvec;
+            Vec3f avg_rvec = rvec;
+
+            Rodrigues(avg_rvec, rotatemat);
+
+            Mat avg_tvec_mat(avg_tvec);
+            Mat camPosition_mat = -rotatemat.t() * avg_tvec_mat;
+            Vec3f camPosition(camPosition_mat.at<float>(0), camPosition_mat.at<float>(1), camPosition_mat.at<float>(2));
+            Vec3f camDirection(rotatemat.at<float>(2, 0), rotatemat.at<float>(2, 1), rotatemat.at<float>(2, 2));
+            Vec3f lookAt = camPosition + camDirection;
+
+            float fovY = 45.0;
+            float zNear = 0.1, zFar = 150;
+
+            Mat camParams = Mat::zeros(4, 3, CV_32F);
+            camParams.row(0) = Mat(camPosition).t();
+            camParams.row(1) = Mat(Vec3f(0.0, 0.0, 0.0)).t();
+            camParams.row(2) = Mat(Vec3f(0.0, 1.0, 0.0)).t();
+            camParams.row(3) = Mat(Vec3f(fovY, zNear, zFar)).t();
+
+            int height = imageCopy.rows, width = imageCopy.cols;
+            Mat depth_buf(height, width, CV_32F, zFar);
+
+            std::vector<Vec3f> vertices;
+            std::vector<vector<int>> indices;
+            std::vector<Vec3f> colors;
+            loadMesh("spot.obj", vertices, colors, indices);
+
+            for (auto& color : colors)
+                color = Vec3f(abs(color[0]) * 255.0f, abs(color[1]) * 255.0f, abs(color[2]) * 255.0f);
+
+            imageCopy.convertTo(imageCopy, CV_32FC3);
+            triangleRasterize(vertices, indices, colors, camParams, width, height, true, depth_buf, imageCopy);
+            imageCopy.convertTo(imageCopy, CV_8UC3);
             cv::drawFrameAxes(imageCopy, camMatrix, distCoeffs, rvec, tvec, axisLength);
+        }
+            
 
         imshow("out", imageCopy);
         char key = (char)waitKey(waitTime);

@@ -41,6 +41,7 @@ the use of this software, even if advised of the possibility of such damage.
 #include <opencv2/aruco.hpp>
 #include <iostream>
 #include "aruco_samples_utility.hpp"
+#include <opencv2/3d.hpp>
 
 using namespace std;
 using namespace cv;
@@ -187,12 +188,48 @@ int main(int argc, char *argv[]) {
 
         // draw results
         image.copyTo(imageCopy);
-        if(!ids.empty()) {
+        if (!ids.empty()) {
             aruco::drawDetectedMarkers(imageCopy, corners, ids);
+            Vec3f avg_tvec = tvecs[0];
+            Vec3f avg_rvec = rvecs[0];
 
-            if(estimatePose) {
-                for(unsigned int i = 0; i < ids.size(); i++)
-                    cv::drawFrameAxes(imageCopy, camMatrix, distCoeffs, rvecs[i], tvecs[i], markerLength * 1.5f, 2);
+            Mat rmat;
+            Rodrigues(avg_rvec, rmat);
+
+            Mat avg_tvec_mat(avg_tvec);
+            Mat camPosition_mat = -rmat.t() * avg_tvec_mat;
+            Vec3f camPosition(camPosition_mat.at<float>(0), camPosition_mat.at<float>(1), camPosition_mat.at<float>(2));
+            Vec3f camDirection(rmat.at<float>(2, 0), rmat.at<float>(2, 1), rmat.at<float>(2, 2));
+            Vec3f lookAt = camPosition + camDirection;
+
+            float fovY = 45.0;
+            float zNear = 0.1, zFar = 50;
+
+            Mat camParams = Mat::zeros(4, 3, CV_32F);
+            camParams.row(0) = Mat(camPosition).t();
+            camParams.row(1) = Mat(lookAt).t();
+            camParams.row(2) = rmat.row(1);
+            camParams.row(3) = Mat(Vec3f(fovY, zNear, zFar)).t();
+
+            int height = imageCopy.rows, width = imageCopy.cols;
+            Mat depth_buf(height, width, CV_32F, zFar);
+
+            std::vector<Vec3f> vertices;
+            std::vector<vector<int>> indices;
+            std::vector<Vec3f> colors;
+            loadMesh("spot.obj", vertices, colors, indices);
+
+            for (auto& color : colors)
+                color = Vec3f(abs(color[0]) * 255.0f, abs(color[1]) * 255.0f, abs(color[2]) * 255.0f);
+
+            imageCopy.convertTo(imageCopy, CV_32FC3);
+            cout << camPosition << endl;
+            //cout << lookAt << endl;
+            //cout << rmat.row(1) << endl;
+            triangleRasterize(vertices, indices, colors, camParams, width, height, true, depth_buf, imageCopy);
+            imageCopy.convertTo(imageCopy, CV_8UC3);
+            if (estimatePose) {
+                cv::drawFrameAxes(imageCopy, camMatrix, distCoeffs, rvecs[0], tvecs[0], markerLength * 1.5f, 2);
             }
         }
 
